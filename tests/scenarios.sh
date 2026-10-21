@@ -22,7 +22,8 @@ fresh() {
   export HOME
   unset XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME TFLEX_WINEPREFIX TFLEX_PREREQS \
     TFLEX_EXE TFLEX_DPI TFLEX_VIRTUAL_DESKTOP DISPLAY WAYLAND_DISPLAY \
-    MESA_GL_VERSION_OVERRIDE MESA_GLSL_VERSION_OVERRIDE TFLEX_GUI_ERRORS
+    MESA_GL_VERSION_OVERRIDE MESA_GLSL_VERSION_OVERRIDE TFLEX_MESA_OVERRIDE TFLEX_RENDER TFLEX_GUI_ERRORS \
+    LC_ALL LC_CTYPE TFLEX_LC_CTYPE force_compat_shaders
   export MOCK_LOG="$HOME/mock.log"
   : >"$MOCK_LOG"
   PFX="$HOME/.local/share/tflex17/prefix"
@@ -205,7 +206,7 @@ t_full_install() {
     fail "winemenubuilder не отключён в реестре префикса"
   # Порядок шагов как в официальном скрипте.
   local prev=0 n s
-  for s in '[wineboot]' '[dotnet48]' '[vcrun2019]' '[d3dcompiler_47]' '[fontsmooth=rgb]' \
+  for s in '[wineboot]' '[dotnet48]' '[vcrun2019]' '[d3dcompiler_47]' '[fontsmooth=rgb]' '[tahoma]' \
     'vc_redist.x86.exe] [/install] [/quiet] [/norestart]' 'vc_redist.x64.exe] [/install] [/quiet] [/norestart]' \
     'AccessDatabaseEngine.exe] [/quiet]' 'Setup_TSC2.msi] [/qn]' \
     'regedit-import view=64 file=fake_hasp.reg' 'regedit-import view=32 file=fake_hasp.reg' \
@@ -226,7 +227,7 @@ t_full_install() {
   [ "$(cat "$PFX/drive_c/Program Files/Common Files/System/ado/msadox.dll")" = native64 ] || fail "ADO x64 не скопирован"
   [ "$(cat "$PFX/drive_c/Program Files (x86)/Common Files/System/ado/msadox.dll")" = native32 ] || fail "ADO x86 не скопирован"
   [ -f "$PFX/drive_c/windows/system32/msxml6.dll" ] || fail "System32 DLL не скопированы"
-  for s in winetricks vcredist accessdb tsc2 hasp-driver-reg system-files ado-reg; do
+  for s in winetricks tahoma vcredist accessdb tsc2 hasp-driver-reg system-files ado-reg; do
     [ -f "$PFX/.tflex17/steps/$s.done" ] || fail "нет отметки шага $s"
   done
   [ -f "$PFX/.tflex17/components/ado-64.reg" ] || fail "компоненты не сохранены в префиксе"
@@ -283,17 +284,42 @@ t_launcher() {
   install_ok
   : >"$MOCK_LOG"
   tflex17 || fail "запуск не удался"
-  grep -qF "run TFlexCad.exe PWD=$PFX/drive_c/Program Files/T-FLEX CAD 17/Program MESA_GL=3.2 MESA_GLSL=330" "$MOCK_LOG" ||
-    fail "TFlexCad.exe запущен не из каталога программы или без MESA_*: $(cat "$MOCK_LOG")"
+  grep -qF "run TFlexCad.exe PWD=$PFX/drive_c/Program Files/T-FLEX CAD 17/Program MESA_GL=<unset> MESA_GLSL=<unset> COMPAT=true CTYPE=ru_RU.UTF-8 ALL=<unset> ARCHIVE=ok" "$MOCK_LOG" ||
+    fail "TFlexCad.exe запущен не из каталога программы, с MESA_*, без force_compat_shaders или русской LC_CTYPE: $(cat "$MOCK_LOG")"
   grep -qF 'T-FLEX CAD 3D 17\Rus\Profiles\[Current]\Options /v USED_COMMON_3D_IMPORT_MULTIPROCESS' "$PFX/user.reg" ||
     fail "не записан USED_COMMON_3D_IMPORT_MULTIPROCESS"
   : >"$MOCK_LOG"
-  TFLEX_NO_MESA_OVERRIDE=1 tflex17
-  grep -q 'MESA_GL=<unset>' "$MOCK_LOG" || fail "TFLEX_NO_MESA_OVERRIDE не сработал"
+  LC_ALL=C.UTF-8 tflex17
+  grep -qF 'CTYPE=ru_RU.UTF-8 ALL=<unset>' "$MOCK_LOG" || fail "LC_ALL не снят: $(cat "$MOCK_LOG")"
+  : >"$MOCK_LOG"
+  TFLEX_LC_CTYPE='' tflex17
+  grep -qF 'CTYPE=<unset> ALL=<unset> ARCHIVE=missing' "$MOCK_LOG" || fail "пустая TFLEX_LC_CTYPE не отключила локаль: $(cat "$MOCK_LOG")"
+  : >"$MOCK_LOG"
+  TFLEX_MESA_OVERRIDE=1 tflex17
+  grep -q 'MESA_GL=3.2 MESA_GLSL=330' "$MOCK_LOG" || fail "TFLEX_MESA_OVERRIDE не сработал: $(cat "$MOCK_LOG")"
+  cfg=("$PFX"/drive_c/users/*/AppData/Local/'Top Systems/T-FLEX CAD 3D 17/Rus/Profiles/[Current]/Configuration/configuration.xml')
+  [ ! -e "${cfg[0]}" ] || fail "без TFLEX_RENDER создан configuration.xml"
+  TFLEX_RENDER=gl1 tflex17
+  cfg=("$PFX"/drive_c/users/*/AppData/Local/'Top Systems/T-FLEX CAD 3D 17/Rus/Profiles/[Current]/Configuration/configuration.xml')
+  grep -q '<RenderOptions ActiveDevice="0"/>' "${cfg[0]}" || fail "TFLEX_RENDER=gl1: не создан configuration.xml с GL1"
+  printf '<Settings><RenderOptions><RenderOptions ActiveDevice="0" MSAA="8"/></RenderOptions></Settings>\n' >"${cfg[0]}"
+  TFLEX_RENDER=gl3 tflex17
+  grep -qF '<RenderOptions ActiveDevice="1" MSAA="8"/>' "${cfg[0]}" || fail "TFLEX_RENDER=gl3 не сработал"
+  TFLEX_RENDER=keep tflex17
+  tflex17
+  grep -qF 'ActiveDevice="1"' "${cfg[0]}" || fail "TFLEX_RENDER=keep или запуск без него изменил настройку"
+  expect_fail 'TFLEX_RENDER: gl1' env TFLEX_RENDER=dx tflex17
   TFLEX_DPI=144 tflex17
   grep -qF 'Control Panel\Desktop /v LogPixels /t REG_DWORD /d 144' "$PFX/user.reg" || fail "TFLEX_DPI не записан"
   expect_fail 'TFLEX_DPI должен быть' env TFLEX_DPI=huge tflex17
   expect_fail 'TFLEX_DPI должен быть' env TFLEX_DPI=1000 tflex17
+  # Учебная версия: настройки — под ключом «T-FLEX CAD ST 17», а не «3D 17».
+  sed -i 's/T-FLEX CAD 3D 17/T-FLEX CAD ST 17/' "$PFX/system.reg"
+  TFLEX_RENDER=gl1 tflex17
+  grep -qF 'T-FLEX CAD ST 17\Rus\Profiles\[Current]\Options /v USED_COMMON_3D_IMPORT_MULTIPROCESS' "$PFX/user.reg" ||
+    fail "USED_COMMON_3D_IMPORT_MULTIPROCESS не записан в ключ учебной версии"
+  cfg=("$PFX"/drive_c/users/*/AppData/Local/'Top Systems/T-FLEX CAD ST 17/Rus/Profiles/[Current]/Configuration/configuration.xml')
+  [ -f "${cfg[0]}" ] || fail "TFLEX_RENDER: не создан профиль учебной версии"
 }
 
 t_launcher_files() {
@@ -486,6 +512,20 @@ t_winetricks_failure() {
   [ ! -e "$PFX/.tflex17/steps/winetricks.done" ] || fail "неудачный шаг отмечен выполненным"
   install_ok
   [ -f "$PFX/.tflex17/steps/winetricks.done" ] || fail "шаг не выполнен после исправления"
+}
+
+# Без сети шрифт Tahoma не ставится, но установка не прерывается, а шаг
+# повторяется при следующем tflex17-deps.
+t_tahoma_failure() {
+  fresh
+  MOCK_WINETRICKS_FAIL=tahoma tflex17-install --prereqs "$ZIP_PRE" "$MSI" >"$HOME/install.out" 2>&1 ||
+    fail "установка прервана из-за шрифта: $(tail -n 5 "$HOME/install.out")"
+  grep -q 'winetricks tahoma завершился с ошибкой' "$HOME/install.out" || fail "нет предупреждения о шрифте"
+  [ ! -e "$PFX/.tflex17/steps/tahoma.done" ] || fail "неудачный шаг tahoma отмечен выполненным"
+  [ -f "$PFX/.tflex17/steps/vcredist.done" ] || fail "шаги после tahoma не выполнены"
+  tflex17-deps --list | grep -qE 'tahoma +не выполнен' || fail "tahoma не в списке невыполненных"
+  tflex17-deps >/dev/null 2>&1 || fail "повтор tflex17-deps не удался"
+  [ -f "$PFX/.tflex17/steps/tahoma.done" ] || fail "tahoma не выполнен при повторе"
 }
 
 t_module_installer() {

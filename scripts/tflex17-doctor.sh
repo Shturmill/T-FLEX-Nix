@@ -33,9 +33,13 @@ if wine_version="$(wine --version 2>/dev/null)"; then
 else
   fail "wine --version не работает ($TFLEX_WINE_PACKAGE)"
 fi
+# В Wine 11.7–11.13 переписанный msxml3 возвращает из setNamedItem NULL,
+# и ToolkitPro в T-FLEX CAD падает при запуске (пустое окно и предложение
+# отправить отчёт об ошибке). Исправлено в 11.14.
 case "$wine_version" in
-  *Staging*) ;;
-  *) warn "используется не Wine Staging; официально проверена связка с Wine Staging" ;;
+  wine-11.[7-9] | wine-11.[7-9][!0-9]* | wine-11.1[0-3] | wine-11.1[0-3][!0-9]*)
+    fail "$wine_version: с msxml3 Wine 11.7–11.13 T-FLEX CAD падает при запуске; нужен другой Wine, например programs.tflex17.winePackage = pkgs.wineWow64Packages.stableFull"
+    ;;
 esac
 note "winetricks: $(winetricks --version 2>/dev/null | head -n 1)"
 note "WINEDEBUG=$WINEDEBUG WINEDLLOVERRIDES=$WINEDLLOVERRIDES"
@@ -135,13 +139,15 @@ if [ -n "${DISPLAY:-}" ]; then
     fail "glxinfo не смог получить контекст OpenGL"
   fi
 fi
-if [ "${TFLEX_NO_MESA_OVERRIDE:-0}" = 1 ]; then
-  note "MESA_GL_VERSION_OVERRIDE при запуске не задаётся (TFLEX_NO_MESA_OVERRIDE=1)"
+if [ "${TFLEX_MESA_OVERRIDE:-0}" = 1 ]; then
+  note "MESA_GL_VERSION_OVERRIDE при запуске: ${MESA_GL_VERSION_OVERRIDE:-3.2} (TFLEX_MESA_OVERRIDE=1, как в официальном скрипте)"
 else
-  note "MESA_GL_VERSION_OVERRIDE при запуске: ${MESA_GL_VERSION_OVERRIDE:-3.2} (как в официальном скрипте)"
+  note "MESA_GL_VERSION_OVERRIDE при запуске: ${MESA_GL_VERSION_OVERRIDE:-не задаётся}"
 fi
+note "устройство 3D при запуске: ${TFLEX_RENDER:-из настроек T-FLEX} (TFLEX_RENDER), force_compat_shaders=${force_compat_shaders:-true}"
 dpi="${TFLEX_DPI:-$TFLEX_DEFAULT_DPI}"
 note "DPI Wine: ${dpi:-как в префиксе}"
+note "LC_CTYPE Wine: ${TFLEX_LC_CTYPE-ru_RU.UTF-8} (TFLEX_LC_CTYPE; ANSI-кодировка CP1251)"
 
 section "Лицензирование"
 note "учебной версии ключ не нужен; коммерческой и ознакомительной — ключ Sentinel HASP или Guardant"

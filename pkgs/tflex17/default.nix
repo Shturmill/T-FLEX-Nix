@@ -15,15 +15,13 @@
   writeShellApplication,
   makeDesktopItem,
   symlinkJoin,
-  wineWow64Packages,
   winetricks,
+  glibcLocales,
 
-  # Wine для префикса. По умолчанию — Wine Staging (как в официальной
-  # инструкции) в режиме WoW64: 64-битная сборка, которая запускает и
-  # 32-битные установщики компонентов без 32-битных библиотек хоста.
-  # Классическая сборка (wineWowPackages) в nixpkgs объявлена устаревшей.
-  # Аргумент не называется «wine»: callPackage подставил бы pkgs.wine.
-  winePackage ? wineWow64Packages.stagingFull,
+  # Wine для префикса; по умолчанию — Wine Staging в режиме WoW64, кроме
+  # версий с ошибкой msxml3 (см. ./wine.nix). Аргумент не называется
+  # «wine»: callPackage подставил бы pkgs.wine.
+  winePackage ? callPackage ./wine.nix { },
   # DPI интерфейса Wine по умолчанию (переменная TFLEX_DPI при запуске
   # главнее); null — не менять настройку префикса.
   dpi ? null,
@@ -38,6 +36,16 @@ let
 
   wine = winePackage;
   deps = callPackage ./runtime-deps.nix { inherit wine winetricks; };
+
+  # Локаль для LC_CTYPE Wine (см. tflex_init в scripts/lib.sh): в системном
+  # архиве локалей NixOS обычно нет ru_RU.
+  locales = glibcLocales.override {
+    allLocales = false;
+    locales = [
+      "ru_RU.UTF-8/UTF-8"
+      "en_US.UTF-8/UTF-8"
+    ];
+  };
 
   libText = builtins.readFile ../../scripts/lib.sh;
 
@@ -57,6 +65,7 @@ let
         TFLEX_NIX_VERSION = version;
         TFLEX_WINE_PACKAGE = "${wine}";
         TFLEX_DEFAULT_DPI = if dpi == null then "" else toString dpi;
+        TFLEX_LOCALE_ARCHIVE = "${locales}/lib/locale/locale-archive";
       };
       text = libText + "\n" + builtins.readFile (../../scripts + "/${name}.sh");
     };

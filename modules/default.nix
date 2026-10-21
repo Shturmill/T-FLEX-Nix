@@ -29,13 +29,15 @@ in
 
     winePackage = mkOption {
       type = types.package;
-      default = pkgs.wineWow64Packages.stagingFull;
-      defaultText = literalExpression "pkgs.wineWow64Packages.stagingFull";
-      example = literalExpression "pkgs.wineWowPackages.stagingFull";
+      default = pkgs.callPackage ../pkgs/tflex17/wine.nix { };
+      defaultText = literalExpression "pkgs.wineWow64Packages.stagingFull # или stableFull, если версия Staging 11.7–11.13";
+      example = literalExpression "pkgs.wineWow64Packages.stableFull";
       description = ''
         Сборка Wine для префикса T-FLEX CAD. По умолчанию — Wine Staging
-        в режиме WoW64. Префикс, созданный одной версией Wine, Wine
-        другой версии обновляет сам при первом запуске.
+        в режиме WoW64, а если его версия 11.7–11.13 — стабильный Wine:
+        с msxml3 этих версий T-FLEX CAD падает при запуске. Префикс,
+        созданный одной версией Wine, Wine другой версии обновляет сам
+        при первом запуске.
       '';
     };
 

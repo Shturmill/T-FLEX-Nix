@@ -74,6 +74,25 @@ tflex_init() {
   # собственные .desktop-файлы и ассоциации со ссылками на /nix/store,
   # которые ломаются после сборки мусора. Ярлык даёт сам пакет.
   export WINEDLLOVERRIDES="winemenubuilder.exe=d${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
+
+  # Кодировка ANSI. Часть строк T-FLEX CAD (например, «Текущая», «От
+  # начала» в параметрах резьбы) — в CP1251 и выводится через ANSI-функции.
+  # Wine выбирает ANSI-кодировку по LC_CTYPE, один раз на сеанс wineserver,
+  # и при английской локали показывает «Òåêóùàÿ». Поэтому LC_CTYPE —
+  # русская (язык сообщений и форматы остаются из LANG), а архив локалей —
+  # из пакета: в системном архиве NixOS ru_RU обычно нет. glibc из nixpkgs
+  # сначала смотрит LOCALE_ARCHIVE_2_27, потом LOCALE_ARCHIVE.
+  local ctype="${TFLEX_LC_CTYPE-ru_RU.UTF-8}"
+  if [ -n "$ctype" ]; then
+    if [ -n "${LC_ALL:-}" ]; then
+      export LANG="$LC_ALL"
+      unset LC_ALL
+    fi
+    export LC_CTYPE="$ctype"
+    if [ -n "${TFLEX_LOCALE_ARCHIVE:-}" ]; then
+      export LOCALE_ARCHIVE_2_27="$TFLEX_LOCALE_ARCHIVE" LOCALE_ARCHIVE="$TFLEX_LOCALE_ARCHIVE"
+    fi
+  fi
 }
 
 # Журнал команды: весь вывод дублируется в $XDG_STATE_HOME/tflex17/logs.
@@ -424,7 +443,7 @@ TFLEX_PREREQ_DIRS=(
 # Шаги до установки T-FLEX CAD и после неё (как в t-flex-install-rus.sh).
 # Нужны не всем командам, отсюда отключённая проверка SC2034.
 # shellcheck disable=SC2034
-TFLEX_PRE_STEPS=(winetricks vcredist accessdb tsc2 hasp-driver-reg)
+TFLEX_PRE_STEPS=(winetricks tahoma vcredist accessdb tsc2 hasp-driver-reg)
 # shellcheck disable=SC2034
 TFLEX_POST_STEPS=(system-files ado-reg)
 # Шаги, которым нужен архив компонентов (winetricks без него скачивает
@@ -434,6 +453,7 @@ TFLEX_PREREQ_STEPS=" vcredist accessdb tsc2 hasp-driver-reg "
 tflex_step_title() {
   case "$1" in
     winetricks) echo ".NET Framework 4.8, Visual C++ 2019, d3dcompiler_47, сглаживание шрифтов (winetricks)" ;;
+    tahoma) echo "шрифт Tahoma от Microsoft с полужирным начертанием (winetricks, нужна сеть)" ;;
     vcredist) echo "Microsoft Visual C++ Redistributable x86 и x64 из архива" ;;
     accessdb) echo "Microsoft Access Database Engine 2007" ;;
     tsc2) echo "TechSmith Screen Codec 2 (видео в справке)" ;;
@@ -528,9 +548,9 @@ tflex_components_saved() { [ -f "$META/components.ok" ]; }
 
 # ------------------------------------------------------------------ шаги
 
-tflex_step_winetricks() {
-  local verb cache="${W_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/winetricks}"
-  export W_CACHE="$cache"
+# Окружение winetricks: кэш загрузок и настоящий загрузчик Wine.
+tflex_winetricks_env() {
+  export W_CACHE="${W_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/winetricks}"
   # bin/wine в nixpkgs — shell-обёртка над bin/.wine. По ней winetricks не
   # определяет разрядность Wine («Unknown file arch»), не распознаёт режим
   # WoW64 и не находит 64-битный загрузчик. Для обёрток winetricks
@@ -538,6 +558,12 @@ tflex_step_winetricks() {
   if [ -z "${WINE_BIN:-}" ] && [ -x "$TFLEX_WINE_PACKAGE/bin/.wine" ]; then
     export WINE_BIN="$TFLEX_WINE_PACKAGE/bin/.wine"
   fi
+}
+
+tflex_step_winetricks() {
+  local verb cache
+  tflex_winetricks_env
+  cache="$W_CACHE"
   if [ -n "${PREREQS:-}" ] && [ -d "$PREREQS/winetricks" ]; then
     # Офлайн-кэш из официального архива; winetricks сверяет SHA-256
     # каждого файла и при несовпадении скачивает его заново.
@@ -552,6 +578,23 @@ tflex_step_winetricks() {
       tflex_die "winetricks $verb завершился с ошибкой; повторить: tflex17-deps --only winetricks"
     fi
   done
+  wineserver -w
+}
+
+# Встроенная в Wine замена Tahoma Bold (tahomabd.ttf) рисует полужирными
+# только буквы, совпадающие по форме с латинскими, а «н», «т», «в», «И»,
+# «Б»… — обычными, и подписи вкладок и диалогов T-FLEX выглядят
+# вперемешку. Оригинальная Tahoma Microsoft (winetricks tahoma) — с
+# полной кириллицей. Её нет в офлайн-кэше официального архива, нужна
+# сеть; без неё шаг не мешает установке (код 1 — шаг не отмечается
+# выполненным и повторяется при следующем tflex17-deps).
+tflex_step_tahoma() {
+  tflex_winetricks_env
+  tflex_log "winetricks tahoma"
+  if ! winetricks --unattended tahoma; then
+    tflex_warn "winetricks tahoma завершился с ошибкой (нет сети?): полужирный шрифт интерфейса будет со смешанной кириллицей; повторить: tflex17-deps --only tahoma"
+    return 1
+  fi
   wineserver -w
 }
 
@@ -631,7 +674,11 @@ tflex_run_step() {
       tflex_components_saved || tflex_die "для шага «$step» нужен архив компонентов. $(tflex_prereqs_hint)"
       ;;
   esac
-  "tflex_step_${step//-/_}"
+  if [ "$step" = tahoma ]; then
+    tflex_step_tahoma || return 0
+  else
+    "tflex_step_${step//-/_}"
+  fi
   mkdir -p -- "$META/steps"
   tflex_stamp "$META/steps/$step.done"
 }

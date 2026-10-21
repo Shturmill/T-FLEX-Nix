@@ -39,6 +39,9 @@ install_product() {
     printf 'MOCK-TFLEXCAD\n' >"$prefix/drive_c/Program Files/$product/Program/TFlexCad.exe"
     printf '\n[Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Uninstall\\\\{MOCK-%s}] 1\n"DisplayName"="%s"\n"DisplayVersion"="17.0.0.0"\n' \
       "${#product}" "$product" >>"$prefix/system.reg"
+    # Ключ продукта, который пишет установщик T-FLEX (по нему лаунчер
+    # находит профиль пользователя).
+    printf '\n[Software\\\\Top Systems\\\\T-FLEX CAD 3D 17\\\\Rus] 1\n' >>"$prefix/system.reg"
   fi
   exit 0
 }
@@ -118,8 +121,10 @@ case "${1:-}" in
     exe=$1
     case "$exe" in
       *[Tt][Ff]lex[Cc]ad.exe)
-        printf 'run TFlexCad.exe PWD=%s MESA_GL=%s MESA_GLSL=%s\n' "$PWD" \
-          "${MESA_GL_VERSION_OVERRIDE:-<unset>}" "${MESA_GLSL_VERSION_OVERRIDE:-<unset>}" >>"$log"
+        archive=missing
+        if [ -f "${LOCALE_ARCHIVE_2_27:-}" ] && [ "$LOCALE_ARCHIVE_2_27" = "${LOCALE_ARCHIVE:-}" ]; then archive=ok; fi
+        printf 'run TFlexCad.exe PWD=%s MESA_GL=%s MESA_GLSL=%s COMPAT=%s CTYPE=%s ALL=%s ARCHIVE=%s\n' "$PWD" \
+          "${MESA_GL_VERSION_OVERRIDE:-<unset>}" "${MESA_GLSL_VERSION_OVERRIDE:-<unset>}" "${force_compat_shaders:-<unset>}" "${LC_CTYPE:-<unset>}" "${LC_ALL:-<unset>}" "$archive" >>"$log"
         ;;
       /*.exe | /*.EXE)
         [ -f "$exe" ] || {
