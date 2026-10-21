@@ -1,0 +1,16 @@
+# результаты сборки
+result
+result-*
+
+# Дистрибутивы и компоненты T-FLEX — проприетарные, в репозиторий НЕ коммитить
+*.msi
+*.exe
+*.zip
+*.7z
+*.rar
+*.tar.gz
+*.tgz
+*.deb
+*.rpm
+*.iso
+Prerequisites_T-FLEX_Linux*

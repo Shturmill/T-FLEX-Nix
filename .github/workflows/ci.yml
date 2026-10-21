@@ -1,0 +1,32 @@
+# CI гоняет проверки без проприетарных файлов (tests/default.nix):
+# сценарии на фальшивом Wine, модули, сборку службы HASP из фальшивого
+# архива и VM-тест с настоящим Wine (создание префикса). Дистрибутив
+# T-FLEX CAD и Prerequisites_T-FLEX_Linux.zip в CI не нужны и класть их
+# туда нельзя.
+name: checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  flake-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # VM-тест (checks.vm) запускает NixOS в QEMU — нужен доступ к KVM.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            system-features = nixos-test benchmark big-parallel kvm
+
+      - name: nix flake check
+        run: nix flake check --print-build-logs --keep-going

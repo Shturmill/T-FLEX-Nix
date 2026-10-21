@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Тип файлов документов T-FLEX CAD, чтобы tflex17.desktop открывал их
+     из файлового менеджера. Расширение .grb — из официального ярлыка
+     (MimeType=application/x-wine-extension-grb). -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-tflex-grb">
+    <comment>T-FLEX CAD document</comment>
+    <comment xml:lang="ru">Документ T-FLEX CAD</comment>
+    <glob pattern="*.grb"/>
+  </mime-type>
+</mime-info>
